@@ -1,0 +1,87 @@
+# mostly: https://github.com/jcmoraisjr/haproxy-ingress/blob/master/examples/modsecurity/agent-daemonset.yaml
+# but rewritten to use NodePort service and include log4j mitigation config as ConfigMap
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    run: modsecurity-spoa
+  name: modsecurity-spoa
+  namespace: ingress-controller
+spec:
+  selector:
+    matchLabels:
+      run: modsecurity-spoa
+  template:
+    metadata:
+      labels:
+        run: modsecurity-spoa
+    spec:
+      volumes:
+      - name: log4j-mitigation
+        configMap:
+          name: modsecurity-log4j-mitigation
+      containers:
+      - name: modsecurity-spoa
+        image: quay.io/jcmoraisjr/modsecurity-spoa
+        args:
+        - -n
+        - "1"
+        - --
+        - /etc/modsecurity/log4j.conf
+        ports:
+        - containerPort: 12345
+          name: spop
+          protocol: TCP
+        volumeMounts:
+        - name: log4j-mitigation
+          mountPath: "/etc/modsecurity/log4j.conf"
+          readOnly: true
+  updateStrategy:
+    type: RollingUpdate
+--
+apiVersion: v1
+kind: Service
+metadata:
+  name: modsecurity-spoa
+  namespace: ingress-controller
+spec:
+  type: NodePort
+  selector:
+    run: modsecurity-spoa
+  ports:
+    - port: 12345
+      targetPort: 12345
+      nodePort: 30001
+--
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: modsecurity-spoa
+  namespace: ingress-controller
+data:
+  modsecurity-log4j-generic.conf: |
+    # source: https://coreruleset.org/20211213/crs-and-log4j-log4shell-cve-2021-44228/
+
+    # Defense against CVE-2021-44228
+    SecRuleUpdateTargetById 932130 "REQUEST_HEADERS"
+
+    SecRule REQUEST_LINE|ARGS|ARGS_NAMES|REQUEST_COOKIES|REQUEST_COOKIES_NAMES|REQUEST_HEADERS|XML://*|XML://@* "@rx (?:\${[^}]{0,4}\${|\${(?:jndi|ctx))" \
+        "id:1005,\
+        phase:2,\
+        block,\
+        t:none,t:urlDecodeUni,t:cmdline,\
+        log,\
+        msg:'Potential Remote Command Execution: Log4j CVE-2021-44228', \
+        tag:'application-multi',\
+        tag:'language-java',\
+        tag:'platform-multi',\
+        tag:'attack-rce',\
+        tag:'OWASP_CRS',\
+        tag:'capec/1000/152/137/6',\
+        tag:'PCI/6.5.2',\
+        tag:'paranoia-level/1',\
+        ver:'OWASP_CRS/3.4.0-dev',\
+        severity:'CRITICAL',\
+        setvar:'tx.rce_score=+%{tx.critical_anomaly_score}',\
+        setvar:'tx.anomaly_score_pl1=+%{tx.critical_anomaly_score}'"

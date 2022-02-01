@@ -1,0 +1,29 @@
+# acme support also requires global controller options set:
+# acme-emails, acme-endpoint, acme-terms-agreed
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: acme-ingress
+  annotations:
+    haproxy-ingress.github.io/balance-algorithm: roundrobin
+    haproxy-ingress.github.io/cert-signer: acme
+spec:
+  ingressClassName: example
+  rules:
+    host: acme-ingress.example.cluster
+  - http:
+      paths:
+      - path: /fanout-service-a
+        pathType: Prefix
+        backend:
+          service:
+            name: service-a
+            port:
+              number: 80
+      - path: /fanout-service-b
+              pathType: Exact
+              backend:
+                service:
+                  name: service-b
+                  port:
+                    number: 80
